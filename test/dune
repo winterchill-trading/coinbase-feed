@@ -3,6 +3,6 @@
  (inline_tests
   (flags
    (:standard -source-tree-root .)))
- (libraries core async coinbase-feed market-data)
+ (libraries core async uri async_websocket coinbase-feed market-data)
  (preprocess
   (pps ppx_jane)))
