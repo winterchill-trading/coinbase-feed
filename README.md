@@ -156,3 +156,9 @@ instrument is `coinbase:<product id>`, e.g. `coinbase:BTC-USD`.
   a reconnect is not printed twice. Trades lost during a disconnect beyond that backlog
   are not recovered.
 - Prices and sizes keep 8 decimal places (the `market-data` fixed point).
+
+## CI
+
+CI installs the pinned siblings and the opam dependencies through the shared
+[ox-setup](https://github.com/winterchill-trading/infra/blob/main/docs/ci.md) action, which
+caches the built opam switch between runs.
