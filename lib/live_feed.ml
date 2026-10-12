@@ -37,12 +37,13 @@ type counters =
   }
 
 type t =
-  { feed : Md.Feed.t
+  { feed : Md.Feed.With_gaps.t
   ; counters : counters
   ; clients : Ws_client.t list
   }
 
-let feed t = t.feed
+let feed t = Md.Feed.With_gaps.to_feed t.feed
+let feed_with_gaps t = t.feed
 
 let stats t : Stats.t =
   { frames = t.counters.frames
@@ -68,6 +69,17 @@ let start
   if List.mem streams Funding ~equal:Md.Stream.equal
   then Log.Global.info "coinbase feed: no funding on Coinbase spot, funding pipe closed";
   Pipe.close funding_w;
+  let gaps_r, gaps_w = Pipe.create () in
+  let gap ~recv_ts ~stream ?instrument () =
+    Pipe.write_without_pushback_if_open
+      gaps_w
+      { Md.Gap.recv_ts
+      ; venue = Coinbase
+      ; instrument
+      ; stream = Some stream
+      ; reason = Resync
+      }
+  in
   let emit : Md.Event.t -> unit = function
     | Trade x -> Pipe.write_without_pushback_if_open trades_w x
     | Bbo x -> Pipe.write_without_pushback_if_open bbo_w x
@@ -78,9 +90,22 @@ let start
   let connect stream ~channel =
     let normalizer = Normalizer.create () in
     let stream_name = Md.Stream.to_string stream in
+    (* Reconnects already reported as a gap. [on_connect] runs before the subscriptions
+       are sent, and Coinbase sends nothing before them, so the gap normally precedes the
+       new connection's frames; [handle] checks too, so whichever runs first reports it. *)
+    let reported = ref 0 in
+    let report_reconnect ws ~recv_ts =
+      let reconnects = Ws_client.reconnects ws in
+      if reconnects > !reported
+      then (
+        reported := reconnects;
+        gap ~recv_ts ~stream ())
+    in
     let on_connect ws =
       if Ws_client.reconnects ws > 0
-      then Log.Global.info "coinbase feed: %s reconnected" stream_name;
+      then (
+        report_reconnect ws ~recv_ts:(Time_source.now time_source);
+        Log.Global.info "coinbase feed: %s reconnected" stream_name);
       subscribe ws ~channel ~symbols
     in
     let%map ws =
@@ -96,6 +121,7 @@ let start
     let handle frame =
       let recv_ts = Time_source.now time_source in
       counters.frames <- counters.frames + 1;
+      report_reconnect ws ~recv_ts;
       Option.iter on_raw ~f:(fun on_raw -> on_raw ~stream ~recv_ts frame);
       match Normalizer.frame normalizer ~recv_ts frame with
       | Error error ->
@@ -107,6 +133,8 @@ let start
               ~frame:(String.prefix frame 500 : string)
               (error : Error.t)]
       | Ok { events; resubscribe = products } ->
+        List.iter products ~f:(fun product ->
+          gap ~recv_ts ~stream ~instrument:(Normalizer.instrument product) ());
         List.iter events ~f:emit;
         if not (List.is_empty products)
         then don't_wait_for (resubscribe ws ~channel ~products)
@@ -136,7 +164,8 @@ let start
       let%map () = close_all () in
       Pipe.close trades_w;
       Pipe.close bbo_w;
-      Pipe.close l2_w)
+      Pipe.close l2_w;
+      Pipe.close gaps_w)
   in
   let feed =
     (module struct
@@ -144,8 +173,9 @@ let start
       let bbo = bbo_r
       let l2 = l2_r
       let funding = funding_r
+      let gaps = gaps_r
       let close () = Lazy_deferred.force_exn closed
-    end : Md.Feed.S)
+    end : Md.Feed.With_gaps.S)
   in
   return { feed; counters; clients = !opened }
 ;;

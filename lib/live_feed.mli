@@ -20,7 +20,16 @@
     On a disconnect the client reconnects with exponential backoff and subscribes again;
     Coinbase answers with a fresh [level2] snapshot, which is emitted as usual. A sequence
     gap on the [level2] connection unsubscribes and resubscribes the affected products to
-    get a new snapshot. Writes do not wait for readers, so consumers should keep up. *)
+    get a new snapshot.
+
+    Breaks are reported on {!feed_with_gaps}'s [gaps] pipe, always with reason [Resync],
+    [venue = Coinbase] and the stream set:
+    - a reconnect of a stream's socket: [instrument = None] (every product of that
+      connection), written before any frame of the new connection is handled;
+    - a [level2] sequence gap that resubscribes products: one gap per product with
+      [instrument] set, written before the resubscription is sent.
+
+    Writes do not wait for readers, so consumers should keep up. *)
 
 open! Core
 open Async
@@ -53,6 +62,9 @@ val start
   -> t Deferred.t
 
 val feed : t -> Market_data.Feed.t
+
+(** The same feed with its [gaps] pipe (see above). *)
+val feed_with_gaps : t -> Market_data.Feed.With_gaps.t
 
 module Stats : sig
   type t =
