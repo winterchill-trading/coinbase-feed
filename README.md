@@ -26,7 +26,13 @@ Pipe.iter_without_pushback F.trades ~f:(fun trade -> ...)
   number, which books have their snapshot, last trade id per product).
 - `Live_feed`: one websocket per stream (so `?on_raw` knows the stream of each raw frame),
   each subscribed to its channel and to `heartbeats`; reconnects with backoff and
-  resubscribes; parse errors are logged, not fatal.
+  resubscribes; parse errors are logged, not fatal. `Live_feed.start` keeps a handle whose
+  `stats` counts frames, parse errors and reconnects; `?time_source` (default the wall
+  clock) stamps `recv_ts` and drives keepalives and reconnection backoff, so tests step
+  them on a synthetic clock.
+- `Raw_normalizer`: `Normalizer` as a `Market_data.Normalizer.S`, for rebuilding event
+  logs from market-recorder raw files:
+  `Market_data.Rebuild_norm.command [ (module Coinbase_feed.Raw_normalizer) ]`.
 
 ## Coverage
 
@@ -105,6 +111,26 @@ $ coinbase-feed feed -symbol BTC-USD -streams funding
 
 The first trades are the backlog Coinbase sends on subscribe (note `exch_ts` well before
 `recv_ts`).
+
+## Tests and benchmark
+
+`test/fixtures/raw/coinbase/<stream>/BTC-USD/2026/10/12/16-54.ndjson` is a recorded
+mainnet minute in the market-recorder raw layout (`<recv_ts> <frame>` per line), one
+connection per stream, cut to the first frames of the minute to stay under 300 KB, with
+the `level2` snapshot trimmed to 50 levels a side. Tests decode and normalize every frame
+(trades: 108 frames, 298 trades; bbo: 135 frames, 111 quotes; l2: 122 frames, one
+snapshot and 113 deltas, no gap), run `Rebuild_norm` over it into a temporary directory
+and read the event logs back, and pin minor words per message with a small tolerance
+(averages: trades 914, bbo 608, l2 1982 words per frame; the trimmed snapshot 33750).
+`Live_feed` is tested against a scripted local websocket server: a malformed frame is
+counted in `stats`, and a dropped connection reconnects on a synthetic clock.
+
+```sh
+dune exec --profile release ./bench/main.exe -- -quota 2
+```
+
+On an M-series Mac: `trades` 6.2 us and 865 words per frame, `bbo` 4.0 us and 611 words,
+`l2 replay` (fresh normalizer, snapshot and 121 frames) 1.73 ms.
 
 ## Symbol conventions
 
