@@ -5,6 +5,13 @@
    (source_tree fixtures))
   (flags
    (:standard -source-tree-root .)))
- (libraries core async uri async_websocket coinbase-feed market-data)
+ (libraries
+  core
+  async
+  core_unix.filename_unix
+  uri
+  async_websocket
+  coinbase-feed
+  market-data)
  (preprocess
   (pps ppx_jane)))
