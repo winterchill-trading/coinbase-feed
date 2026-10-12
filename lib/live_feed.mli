@@ -13,9 +13,9 @@
     [Funding] is not available on Coinbase spot: its pipe is closed immediately, and no
     connection is opened for it. Conversion rules are in {!Normalizer}.
 
-    [recv_ts] is [Time_ns.now ()] when the frame is received. [on_raw] gets that frame
-    unparsed, first, including acks and heartbeats. Undecodable frames and error frames
-    are logged and skipped.
+    [recv_ts] is the time source's now when the frame is received. [on_raw] gets that
+    frame unparsed, first, including acks and heartbeats. Undecodable frames and error
+    frames are logged and skipped.
 
     On a disconnect the client reconnects with exponential backoff and subscribes again;
     Coinbase answers with a fresh [level2] snapshot, which is emitted as usual. A sequence
@@ -28,9 +28,13 @@ open Async
 (** The channel subscribed for a stream; [None] for [Funding] (and [Private]). *)
 val channel : Market_data.Stream.t -> string option
 
-(** Raises if a first connection fails, or if [streams] contains [Private]. *)
+(** [time_source] (default the wall clock) stamps [recv_ts] and drives the keepalive, the
+    silence watchdog and the reconnection backoff, so tests can step them.
+
+    Raises if a first connection fails, or if [streams] contains [Private]. *)
 val create
   :  ?on_raw:(stream:Market_data.Stream.t -> recv_ts:Time_ns.t -> string -> unit)
+  -> ?time_source:Time_source.t
   -> Config.t
   -> symbols:string list
   -> streams:Market_data.Stream.t list
@@ -42,6 +46,7 @@ type t
 (** Like {!create}, keeping the handle for {!stats}. *)
 val start
   :  ?on_raw:(stream:Market_data.Stream.t -> recv_ts:Time_ns.t -> string -> unit)
+  -> ?time_source:Time_source.t
   -> Config.t
   -> symbols:string list
   -> streams:Market_data.Stream.t list

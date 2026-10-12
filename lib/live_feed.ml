@@ -51,7 +51,13 @@ let stats t : Stats.t =
   }
 ;;
 
-let start ?on_raw (config : Config.t) ~symbols ~streams =
+let start
+  ?on_raw
+  ?(time_source = Time_source.wall_clock ())
+  (config : Config.t)
+  ~symbols
+  ~streams
+  =
   let streams = List.dedup_and_sort streams ~compare:Md.Stream.compare in
   if List.mem streams Private ~equal:Md.Stream.equal
   then raise_s [%message "Live_feed.create: the private stream is not a market feed"];
@@ -82,12 +88,13 @@ let start ?on_raw (config : Config.t) ~symbols ~streams =
         ~ping:(`Frame (Time_ns.Span.of_sec 10.))
         ~on_connect
         ~log_name:("coinbase " ^ stream_name)
+        ~time_source
         ~url:config.url
         ()
       >>| Or_error.ok_exn
     in
     let handle frame =
-      let recv_ts = Time_ns.now () in
+      let recv_ts = Time_source.now time_source in
       counters.frames <- counters.frames + 1;
       Option.iter on_raw ~f:(fun on_raw -> on_raw ~stream ~recv_ts frame);
       match Normalizer.frame normalizer ~recv_ts frame with
@@ -143,7 +150,7 @@ let start ?on_raw (config : Config.t) ~symbols ~streams =
   return { feed; counters; clients = !opened }
 ;;
 
-let create ?on_raw config ~symbols ~streams =
-  let%map t = start ?on_raw config ~symbols ~streams in
+let create ?on_raw ?time_source config ~symbols ~streams =
+  let%map t = start ?on_raw ?time_source config ~symbols ~streams in
   feed t
 ;;
