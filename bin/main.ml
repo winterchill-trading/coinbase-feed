@@ -11,7 +11,10 @@ let feed =
   Command.async
     ~summary:"Print normalized Coinbase market data as sexps"
     (let%map_open.Command symbol =
-       flag "-symbol" (required string) ~doc:"PRODUCT product id, e.g. BTC-USD"
+       flag
+         "-symbol"
+         (required string)
+         ~doc:"PRODUCTS product id, e.g. BTC-USD; several separated by commas"
      and streams =
        flag
          "-streams"
@@ -37,7 +40,11 @@ let feed =
            Core.eprintf "%s %s\n%!" (Md.Stream.to_string stream) (String.prefix frame 300))
        in
        let%bind (module F) =
-         Coinbase_feed.Live_feed.create ?on_raw config ~symbols:[ symbol ] ~streams
+         Coinbase_feed.Live_feed.create
+           ?on_raw
+           config
+           ~symbols:(String.split symbol ~on:',')
+           ~streams
        in
        let printed = ref 0 in
        let finished = Ivar.create () in
@@ -59,13 +66,20 @@ let feed =
            Option.iter count ~f:(fun count ->
              if !printed >= count then Ivar.fill_if_empty finished ()))
        in
-       let forward pipe ~f =
-         don't_wait_for (Pipe.iter_without_pushback pipe ~f:(fun x -> print (f x)))
+       let forward stream pipe ~f =
+         let done_ = Pipe.iter_without_pushback pipe ~f:(fun x -> print (f x)) in
+         Option.some_if (List.mem streams stream ~equal:Md.Stream.equal) done_
        in
-       forward F.trades ~f:(fun x -> Md.Event.Trade x);
-       forward F.bbo ~f:(fun x -> Md.Event.Bbo x);
-       forward F.l2 ~f:(fun x -> Md.Event.L2 x);
-       forward F.funding ~f:(fun x -> Md.Event.Funding x);
+       (* Stop once every requested stream has ended, e.g. [funding] on spot. *)
+       upon
+         (Deferred.all_unit
+            (List.filter_opt
+               [ forward Trades F.trades ~f:(fun x -> Md.Event.Trade x)
+               ; forward Bbo F.bbo ~f:(fun x -> Md.Event.Bbo x)
+               ; forward L2 F.l2 ~f:(fun x -> Md.Event.L2 x)
+               ; forward Funding F.funding ~f:(fun x -> Md.Event.Funding x)
+               ]))
+         (fun () -> Ivar.fill_if_empty finished ());
        Option.iter seconds ~f:(fun s ->
          upon
            (Clock_ns.after (Time_ns.Span.of_sec s))
