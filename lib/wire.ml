@@ -98,7 +98,17 @@ module Trade = struct
     ; time : Time_ns.t
     ; maker_side : Md.Side.t
     }
-  [@@deriving sexp_of]
+
+  let sexp_of_t { product_id; trade_id; price; size; time; maker_side } =
+    [%sexp
+      { product_id : string
+      ; trade_id : string
+      ; price : Md.Price.t
+      ; size : Md.Size.t
+      ; time : Time_ns.Alternate_sexp.t
+      ; maker_side : Md.Side.t
+      }]
+  ;;
 
   let t_of_yojson json =
     let { Wire.product_id; trade_id; price; size; time; side } = Wire.t_of_yojson json in
@@ -294,9 +304,16 @@ let decode frame =
   |> Result.map_error ~f:(fun error ->
     (* Decoder exceptions embed source paths; keep only their message. *)
     let reason =
-      match Error.to_exn error with
-      | Ppx_yojson_conv_lib.Yojson_conv.Of_yojson_error (exn, _) -> Exn.to_string exn
-      | exn -> Exn.to_string exn
+      let rec reason = function
+        | Ppx_yojson_conv_lib.Yojson_conv.Of_yojson_error (exn, _) -> reason exn
+        | Yojson.Json_error message -> message
+        | Failure message ->
+          (match String.substr_index message ~pattern:"_of_yojson: " with
+           | Some i -> String.drop_prefix message (i + String.length "_of_yojson: ")
+           | None -> message)
+        | exn -> Exn.to_string exn
+      in
+      reason (Error.to_exn error)
     in
     Error.create_s [%message "cannot decode Coinbase frame" reason])
 ;;
