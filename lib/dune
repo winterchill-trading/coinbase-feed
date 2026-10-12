@@ -1,0 +1,6 @@
+(library
+ (name coinbase_feed)
+ (public_name coinbase-feed)
+ (libraries core async venue-net market-data yojson ppx_yojson_conv_lib uri)
+ (preprocess
+  (pps ppx_jane ppx_yojson_conv)))
