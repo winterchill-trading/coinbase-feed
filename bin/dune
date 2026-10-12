@@ -1,0 +1,7 @@
+(executable
+ (name main)
+ (public_name coinbase-feed)
+ (package coinbase-feed)
+ (libraries core async core_unix.command_unix coinbase-feed market-data uri)
+ (preprocess
+  (pps ppx_jane)))
