@@ -1,6 +1,8 @@
 (library
  (name coinbase_feed_test)
  (inline_tests
+  (deps
+   (source_tree fixtures))
   (flags
    (:standard -source-tree-root .)))
  (libraries core async uri async_websocket coinbase-feed market-data)
