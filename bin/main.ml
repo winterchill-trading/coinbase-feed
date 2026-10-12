@@ -46,7 +46,7 @@ let feed =
          then (
            let event : Md.Event.t =
              match event with
-             | L2 l2 ->
+             | Md.Event.L2 l2 ->
                L2
                  { l2 with
                    bids = List.take l2.bids depth
