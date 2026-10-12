@@ -1,0 +1,24 @@
+(executable
+ (name main)
+ (libraries core core_unix.command_unix core_bench coinbase-feed)
+ (preprocess
+  (pps ppx_jane)))
+
+; The recorded minute from test/fixtures, embedded as strings.
+
+(rule
+ (target frames.ml)
+ (deps
+  (glob_files_rec ../test/fixtures/**.ndjson))
+ (action
+  (with-stdout-to
+   frames.ml
+   (progn
+    (echo "let trades = {json|")
+    (cat
+     ../test/fixtures/raw/coinbase/trades/BTC-USD/2026/10/12/16-54.ndjson)
+    (echo "|json}\nlet bbo = {json|")
+    (cat ../test/fixtures/raw/coinbase/bbo/BTC-USD/2026/10/12/16-54.ndjson)
+    (echo "|json}\nlet l2 = {json|")
+    (cat ../test/fixtures/raw/coinbase/l2/BTC-USD/2026/10/12/16-54.ndjson)
+    (echo "|json}\n")))))

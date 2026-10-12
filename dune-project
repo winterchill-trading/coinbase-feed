@@ -31,4 +31,5 @@
   ppx_yojson_conv
   ppx_yojson_conv_lib
   yojson
-  uri))
+  uri
+  (core_bench :with-test)))
