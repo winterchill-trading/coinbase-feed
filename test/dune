@@ -1,0 +1,8 @@
+(library
+ (name coinbase_feed_test)
+ (inline_tests
+  (flags
+   (:standard -source-tree-root .)))
+ (libraries core async coinbase-feed market-data)
+ (preprocess
+  (pps ppx_jane)))
