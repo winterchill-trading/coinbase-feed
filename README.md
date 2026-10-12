@@ -29,7 +29,8 @@ Pipe.iter_without_pushback F.trades ~f:(fun trade -> ...)
   resubscribes; parse errors are logged, not fatal. `Live_feed.start` keeps a handle whose
   `stats` counts frames, parse errors and reconnects; `?time_source` (default the wall
   clock) stamps `recv_ts` and drives keepalives and reconnection backoff, so tests step
-  them on a synthetic clock.
+  them on a synthetic clock. `Live_feed.feed_with_gaps` is the same feed with a `gaps`
+  pipe (see "Gaps and reconnects").
 - `Raw_normalizer`: `Normalizer` as a `Market_data.Normalizer.S`, for rebuilding event
   logs from market-recorder raw files:
   `Market_data.Rebuild_norm.command [ (module Coinbase_feed.Raw_normalizer) ]`.
@@ -47,6 +48,28 @@ Live checks (2026-10-12): each stream on BTC-USD for 10 s, and all three on BTC-
 ETH-USD together for 110 s (past Coinbase's 60-90 s idle cutoff) with no sequence gap,
 no reconnect and no parse error. Resubscribing `level2` on an open connection was checked
 to produce a fresh snapshot.
+
+## Gaps and reconnects
+
+`Live_feed.feed_with_gaps` reports every break as a `Market_data.Gap.t` with reason
+`Resync`, venue `Coinbase` and the stream set:
+
+- a reconnect of a stream's socket: one gap with `instrument = None` (every product of
+  that connection), written before any frame of the new connection is handled;
+- a `level2` sequence break: one gap per product that was synced (all of them, since
+  `sequence_num` is per connection), with `instrument` set, written before the
+  unsubscribe/subscribe that fetches new snapshots.
+
+What a reconnect loses on this venue: everything the server sent between the drop and the
+new subscription. Coinbase has no replay, so `level2` deltas in that window are gone and
+the book restarts from the snapshot sent on resubscribe; `ticker` quotes are gone (the
+next one arrives on the next match); `market_trades` resends a backlog of recent trades on
+subscribe, de-duplicated by `trade_id`, so only trades older than that backlog are lost.
+The window is the reconnect backoff plus the handshake: the first retry waits 0.5 s with
+20% jitter, doubling on further failures up to 30 s. In `test/test_live_feed_gaps.ml` (synthetic
+clock) a socket dropped at 0.1 s is back with its gap and a fresh snapshot at 0.7 s, after
+one reconnect; a sequence break on a connection holding BTC-USD and ETH-USD books yields
+two instrument gaps and one resubscribe of both products.
 
 ## Command line
 
@@ -123,7 +146,8 @@ snapshot and 113 deltas, no gap), run `Rebuild_norm` over it into a temporary di
 and read the event logs back, and pin minor words per message with a small tolerance
 (averages: trades 914, bbo 608, l2 1982 words per frame; the trimmed snapshot 33750).
 `Live_feed` is tested against a scripted local websocket server: a malformed frame is
-counted in `stats`, and a dropped connection reconnects on a synthetic clock.
+counted in `stats`, a dropped connection reconnects on a synthetic clock, and resync gaps
+precede the first event after a sequence break or a reconnect.
 
 ```sh
 dune exec --profile release ./bench/main.exe -- -quota 2
