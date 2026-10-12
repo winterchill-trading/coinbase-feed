@@ -49,7 +49,9 @@ Every data frame is
 - A jump of more than one means a frame was lost; a lower number is out of order or a new
   connection. The docs give no recovery procedure. For `level2` the only way to resync is a
   fresh snapshot: unsubscribe and subscribe the product again (the snapshot arrives
-  first, with `"type":"snapshot"`).
+  first, with `"type":"snapshot"`). Verified live: after `unsubscribe` + `subscribe` on
+  the same connection the server sends `subscriptions {}`, a new `snapshot`, then the
+  `subscriptions` ack, and `sequence_num` keeps counting.
 - There is no checksum.
 - Channel names in frames differ from the subscription names: subscribing to `level2`
   delivers `"channel":"l2_data"`.
@@ -104,7 +106,7 @@ only time.
 - `side` is `bid` or `offer`; `new_quantity` is the new absolute size at `price_level`,
   `"0"` removes the level.
 - The BTC-USD snapshot is one text frame of about **4.5 MB** (the whole book, ~30k levels).
-  Clients must accept large frames.
+  Clients must accept large frames; it can arrive several seconds after its `event_time`.
 - Observed ordering: the snapshot (seq 0) may be followed by an update (seq 1) before the
   `subscriptions` ack (seq 2).
 
