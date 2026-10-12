@@ -22,7 +22,36 @@ let resubscribe ws ~channel ~products =
   Ws_client.send ws (Wire.subscribe ~channel ~product_ids:products)
 ;;
 
-let create ?on_raw (config : Config.t) ~symbols ~streams =
+module Stats = struct
+  type t =
+    { frames : int
+    ; parse_errors : int
+    ; reconnects : int
+    }
+  [@@deriving sexp_of]
+end
+
+type counters =
+  { mutable frames : int
+  ; mutable parse_errors : int
+  }
+
+type t =
+  { feed : Md.Feed.t
+  ; counters : counters
+  ; clients : Ws_client.t list
+  }
+
+let feed t = t.feed
+
+let stats t : Stats.t =
+  { frames = t.counters.frames
+  ; parse_errors = t.counters.parse_errors
+  ; reconnects = List.sum (module Int) t.clients ~f:Ws_client.reconnects
+  }
+;;
+
+let start ?on_raw (config : Config.t) ~symbols ~streams =
   let streams = List.dedup_and_sort streams ~compare:Md.Stream.compare in
   if List.mem streams Private ~equal:Md.Stream.equal
   then raise_s [%message "Live_feed.create: the private stream is not a market feed"];
@@ -39,6 +68,7 @@ let create ?on_raw (config : Config.t) ~symbols ~streams =
     | L2 x -> Pipe.write_without_pushback_if_open l2_w x
     | Funding x -> Pipe.write_without_pushback_if_open funding_w x
   in
+  let counters = { frames = 0; parse_errors = 0 } in
   let connect stream ~channel =
     let normalizer = Normalizer.create () in
     let stream_name = Md.Stream.to_string stream in
@@ -58,9 +88,11 @@ let create ?on_raw (config : Config.t) ~symbols ~streams =
     in
     let handle frame =
       let recv_ts = Time_ns.now () in
+      counters.frames <- counters.frames + 1;
       Option.iter on_raw ~f:(fun on_raw -> on_raw ~stream ~recv_ts frame);
       match Normalizer.frame normalizer ~recv_ts frame with
       | Error error ->
+        counters.parse_errors <- counters.parse_errors + 1;
         Log.Global.error_s
           [%message
             "coinbase feed: cannot use frame"
@@ -99,7 +131,7 @@ let create ?on_raw (config : Config.t) ~symbols ~streams =
       Pipe.close bbo_w;
       Pipe.close l2_w)
   in
-  return
+  let feed =
     (module struct
       let trades = trades_r
       let bbo = bbo_r
@@ -107,4 +139,11 @@ let create ?on_raw (config : Config.t) ~symbols ~streams =
       let funding = funding_r
       let close () = Lazy_deferred.force_exn closed
     end : Md.Feed.S)
+  in
+  return { feed; counters; clients = !opened }
+;;
+
+let create ?on_raw config ~symbols ~streams =
+  let%map t = start ?on_raw config ~symbols ~streams in
+  feed t
 ;;
