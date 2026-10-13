@@ -26,7 +26,8 @@ let measure stream =
    The tolerances below are the same kind of slack. *)
 (* expected (words per frame, max words) per stream, within 2% and 1%, at least 16 words *)
 (* Repinned 2026-10-13: the counts fell from 914/608/1982 with no change in this repo,
-   from a dependency update, and are identical on macOS and Linux CI. *)
+   because fixed-decimal now parses prices and sizes in place. Identical on macOS and
+   Linux CI. *)
 let expected : Market_data.Stream.t -> int * int = function
   | Trades -> 839, 20227
   | Bbo -> 560, 625
