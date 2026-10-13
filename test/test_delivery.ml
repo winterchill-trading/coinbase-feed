@@ -84,6 +84,17 @@ let outputs { live; _ } =
     }]
 ;;
 
+(* Events per pipe (trades, bbo, l2, funding, gaps). Counts rather than the sexp: its
+   timestamps print in the machine's time zone. *)
+let events : Sexp.t -> int list = function
+  | List fields ->
+    List.filter_map fields ~f:(function
+      | List [ Atom "stats"; _ ] -> None
+      | List [ Atom _; List items ] -> Some (List.length items)
+      | _ -> None)
+  | Atom _ -> []
+;;
+
 let stop { live; server; _ } =
   let module F = (val Live_feed.feed live : Market_data.Feed.S) in
   let%bind () = F.close () in
@@ -115,15 +126,15 @@ let%expect_test "on_message and the messages pipe give the same output on every 
             (stream : Market_data.Stream.t)
             ~frames:(List.length frames : int)
             ~same:(Sexp.equal old_out new_out : bool)
-            ~sexp_bytes:(String.length (Sexp.to_string old_out) : int)];
+            ~events:(events old_out : int list)];
       let%bind () = stop old in
       stop new_)
   in
   [%expect
     {|
-    ((stream Trades) (frames 108) (same true) (sexp_bytes 60875))
-    ((stream Bbo) (frames 135) (same true) (sexp_bytes 24658))
-    ((stream L2) (frames 122) (same true) (sexp_bytes 56389))
+    ((stream Trades) (frames 108) (same true) (events (298 0 0 0 0)))
+    ((stream Bbo) (frames 135) (same true) (events (0 111 0 0 0)))
+    ((stream L2) (frames 122) (same true) (events (0 0 114 0 0)))
     |}]
 ;;
 
