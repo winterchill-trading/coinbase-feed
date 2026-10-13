@@ -4,7 +4,8 @@
    in-process fake server in one burst, and the feed's trades pipe is drained a batch at a
    time. Words are minor heap words over the whole receive phase (socket reads, framing,
    the delivery from [Ws_client], [Normalizer.frame] and the pipe writes), divided by the
-   number of frames. *)
+   number of frames. [via messages] is the delivery before [on_message] (reading
+   [Ws_client.messages] one frame at a time). *)
 
 open! Core
 open Async
@@ -105,7 +106,11 @@ let measure name start =
 let main () =
   Log.Global.set_output [];
   printf "trades: %d frames per run, one burst, best of %d runs\n%!" n runs;
-  measure "live feed" (fun ~on_raw config -> Live_feed.start ~on_raw config)
+  let%bind () =
+    measure "via messages" (fun ~on_raw config ->
+      Live_feed.For_testing.start_via_messages ~on_raw config)
+  in
+  measure "on_message" (fun ~on_raw config -> Live_feed.start ~on_raw config)
 ;;
 
 let () =
