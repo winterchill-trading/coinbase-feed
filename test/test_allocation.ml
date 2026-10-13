@@ -25,10 +25,12 @@ let measure stream =
 (* Pinned counts. macOS and Linux differ by a few words, which [Approx.approx] absorbs.
    The tolerances below are the same kind of slack. *)
 (* expected (words per frame, max words) per stream, within 2% and 1%, at least 16 words *)
+(* Repinned 2026-10-13: the counts fell from 914/608/1982 with no change in this repo,
+   from a dependency update, and are identical on macOS and Linux CI. *)
 let expected : Market_data.Stream.t -> int * int = function
-  | Trades -> 914, 22724
-  | Bbo -> 608, 683
-  | L2 -> 1982, 33750
+  | Trades -> 839, 20227
+  | Bbo -> 560, 625
+  | L2 -> 1728, 28539
   | Funding | Private -> 0, 0
 ;;
 
