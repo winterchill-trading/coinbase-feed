@@ -22,6 +22,8 @@ let measure stream =
     , String.length frame ))
 ;;
 
+(* Pinned counts. macOS and Linux differ by a few words, which [Approx.approx] absorbs.
+   The tolerances below are the same kind of slack. *)
 (* expected (words per frame, max words) per stream, within 2% and 1%, at least 16 words *)
 let expected : Market_data.Stream.t -> int * int = function
   | Trades -> 914, 22724
