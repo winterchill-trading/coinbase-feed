@@ -52,7 +52,8 @@ let stats t : Stats.t =
   }
 ;;
 
-let start
+let start_with
+  ~via_messages
   ?on_raw
   ?(time_source = Time_source.wall_clock ())
   (config : Config.t)
@@ -101,45 +102,57 @@ let start
         reported := reconnects;
         gap ~recv_ts ~stream ())
     in
+    (* The client frames arrive on, set by [on_connect], which runs before the first frame
+       of every connection. *)
+    let current = ref None in
     let on_connect ws =
+      current := Some ws;
       if Ws_client.reconnects ws > 0
       then (
         report_reconnect ws ~recv_ts:(Time_source.now time_source);
         Log.Global.info "coinbase feed: %s reconnected" stream_name);
       subscribe ws ~channel ~symbols
     in
+    let handle frame =
+      match !current with
+      | None -> ()
+      | Some ws ->
+        let recv_ts = Time_source.now time_source in
+        counters.frames <- counters.frames + 1;
+        report_reconnect ws ~recv_ts;
+        Option.iter on_raw ~f:(fun on_raw -> on_raw ~stream ~recv_ts frame);
+        (match Normalizer.frame normalizer ~recv_ts frame with
+         | Error error ->
+           counters.parse_errors <- counters.parse_errors + 1;
+           Log.Global.error_s
+             [%message
+               "coinbase feed: cannot use frame"
+                 ~stream:stream_name
+                 ~frame:(String.prefix frame 500 : string)
+                 (error : Error.t)]
+         | Ok { events; resubscribe = products } ->
+           List.iter products ~f:(fun product ->
+             gap ~recv_ts ~stream ~instrument:(Normalizer.instrument product) ());
+           List.iter events ~f:emit;
+           if not (List.is_empty products)
+           then don't_wait_for (resubscribe ws ~channel ~products))
+    in
+    (* [on_message] hands each frame over with no pipe in between; reading [messages] one
+       frame at a time cost about 13 words per frame more (see venue-net's README). The
+       pipe path is kept for [For_testing.start_via_messages]. *)
     let%map ws =
       Ws_client.connect
         ~ping:(`Frame (Time_ns.Span.of_sec 10.))
         ~on_connect
+        ?on_message:(if via_messages then None else Some handle)
         ~log_name:("coinbase " ^ stream_name)
         ~time_source
         ~url:config.url
         ()
       >>| Or_error.ok_exn
     in
-    let handle frame =
-      let recv_ts = Time_source.now time_source in
-      counters.frames <- counters.frames + 1;
-      report_reconnect ws ~recv_ts;
-      Option.iter on_raw ~f:(fun on_raw -> on_raw ~stream ~recv_ts frame);
-      match Normalizer.frame normalizer ~recv_ts frame with
-      | Error error ->
-        counters.parse_errors <- counters.parse_errors + 1;
-        Log.Global.error_s
-          [%message
-            "coinbase feed: cannot use frame"
-              ~stream:stream_name
-              ~frame:(String.prefix frame 500 : string)
-              (error : Error.t)]
-      | Ok { events; resubscribe = products } ->
-        List.iter products ~f:(fun product ->
-          gap ~recv_ts ~stream ~instrument:(Normalizer.instrument product) ());
-        List.iter events ~f:emit;
-        if not (List.is_empty products)
-        then don't_wait_for (resubscribe ws ~channel ~products)
-    in
-    don't_wait_for (Pipe.iter_without_pushback (Ws_client.messages ws) ~f:handle);
+    if via_messages
+    then don't_wait_for (Pipe.iter_without_pushback (Ws_client.messages ws) ~f:handle);
     ws
   in
   let opened = ref [] in
@@ -179,6 +192,12 @@ let start
   in
   return { feed; counters; clients = !opened }
 ;;
+
+let start = start_with ~via_messages:false
+
+module For_testing = struct
+  let start_via_messages = start_with ~via_messages:true
+end
 
 let create ?on_raw ?time_source config ~symbols ~streams =
   let%map t = start ?on_raw ?time_source config ~symbols ~streams in
