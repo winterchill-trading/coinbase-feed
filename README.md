@@ -144,7 +144,8 @@ the `level2` snapshot trimmed to 50 levels a side. Tests decode and normalize ev
 (trades: 108 frames, 298 trades; bbo: 135 frames, 111 quotes; l2: 122 frames, one
 snapshot and 113 deltas, no gap), run `Rebuild_norm` over it into a temporary directory
 and read the event logs back, and pin minor words per message with a small tolerance
-(averages: trades 914, bbo 608, l2 1982 words per frame; the trimmed snapshot 33750).
+(averages: trades 839, bbo 560, l2 1728 words per frame; the trimmed snapshot 28539;
+the same on macOS and Linux).
 `Live_feed` is tested against a scripted local websocket server: a malformed frame is
 counted in `stats`, a dropped connection reconnects on a synthetic clock, and resync gaps
 precede the first event after a sequence break or a reconnect.
@@ -155,6 +156,33 @@ dune exec --profile release ./bench/main.exe -- -quota 2
 
 On an M-series Mac: `trades` 6.2 us and 865 words per frame, `bbo` 4.0 us and 611 words,
 `l2 replay` (fresh normalizer, snapshot and 121 frames) 1.73 ms.
+
+### Websocket delivery
+
+`Live_feed` takes frames from `Venue_net.Ws_client` through `on_message`, so each frame
+goes from the connection's frame pipe straight to the normalizer. Before, it read
+`Ws_client.messages` one frame at a time with `Pipe.iter_without_pushback`, which costs
+about 13 words per frame for the hop (see venue-net's README); that path is kept as
+`Live_feed.For_testing.start_via_messages`.
+
+`dune exec ./bench/live.exe` writes the recorded trades minute 100 times (10,800 frames,
+`sequence_num` renumbered so the repeats are gapless) as pre-encoded websocket frames from
+the in-process fake server in one burst, and counts minor words over the whole receive
+phase (socket reads, framing, delivery, `Normalizer.frame`, pipe writes). arm64, best of
+10 runs:
+
+| Build | messages pipe (before) | `on_message` |
+| --- | --- | --- |
+| dev | 5.9 to 6.2 us, 823.6 words | 6.0 to 6.2 us, 810.6 words |
+| release | 6.0 to 10.3 us, 823.5 words | 6.0 to 6.1 us, 810.5 words |
+| release, `OCAMLPARAM='_,O3=1'` | 6.2 us, 821.6 words | 6.0 us, 808.4 words |
+
+The Yojson decode of each trades frame dominates, so the time difference is inside the
+noise; the 13 words per frame are exact. `test/test_delivery.ml` runs both deliveries over
+every recorded stream and requires identical events, gaps and stats (gap ordering is
+covered by the `Live_feed` tests, which now run on `on_message`), and pins the words per
+trades frame end to end (dev profile: about 919 before, 906 now, 13 saved; a few words of
+slack for Linux CI).
 
 ## Symbol conventions
 
